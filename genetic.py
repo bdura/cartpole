@@ -102,27 +102,27 @@ class Generation:
         for agent in self.agents:
             agent.reset()
 
-    def select(self):
+    def select(self, proportion=.3):
         p = np.array([agent.reward for agent in self.agents])
         p /= p.sum()
 
-        agents = np.random.choice(self.agents, size=2*self.n//3, replace=False, p=p)
+        agents = np.random.choice(self.agents, size=int(proportion*self.n), replace=False, p=p)
 
         p = np.array([agent.reward for agent in agents])
         p /= p.sum()
 
-        n = self.n - 2*self.n//3
+        n = self.n - int(proportion*self.n)
 
         self.agents = [agent for agent in agents] + \
                       [agent.offspring(self.std) for agent in np.random.choice(agents, n, p=p)]
 
-    def simulation_step(self):
+    def simulation_step(self, n=100):
 
         for agent in self.agents:
 
             observation = self.env.reset()
 
-            for t in range(100):
+            for t in range(n):
                 observation, reward, done, info = self.env.step(agent.action(observation))
 
                 agent.add_reward(reward)
