@@ -1,4 +1,5 @@
 import numpy as np
+import gym
 
 
 def single_relu(x):
@@ -31,19 +32,26 @@ class Agent:
         if self.verbose:
             print(text)
 
-    def mutate(self):
+    def mutate(self, std=None):
 
-        weights1 = self.weights1 + np.random.normal(0, self.std, [4, 4])
-        weights2 = self.weights2 + np.random.normal(0, self.std, [2, 4])
-        bias1 = self.bias1 + np.random.normal(0, self.std, 4)
-        bias2 = self.bias2 + np.random.normal(0, self.std, 2)
+        if not std:
+            std = self.std
+
+        weights1 = self.weights1 + np.random.normal(0, std, [4, 4])
+        weights2 = self.weights2 + np.random.normal(0, std, [2, 4])
+        bias1 = self.bias1 + np.random.normal(0, std, 4)
+        bias2 = self.bias2 + np.random.normal(0, std, 2)
 
         return weights1, bias1, weights2, bias2
 
-    def copy(self):
-        weights1, bias1, weights2, bias2 = self.mutate()
+    def offspring(self, std=None):
 
-        agent = Agent(self.std)
+        if not std:
+            std = self.std
+
+        weights1, bias1, weights2, bias2 = self.mutate(std)
+
+        agent = Agent(std)
 
         agent.weights1 = weights1
         agent.weights2 = weights2
@@ -71,7 +79,7 @@ class Agent:
 
         return np.argmax(result)
 
-    def full_reward(self, reward):
+    def add_reward(self, reward):
         self.reward += reward
 
     def reset(self):
@@ -80,10 +88,55 @@ class Agent:
 
 class Generation:
 
-    def __init__(self, n=10, std=.5, verbose=False):
+    def __init__(self, n=10, std=.1, verbose=False):
 
+        self.generation = 0
+        self.std = std
+
+        self.n = n
         self.agents = [Agent(std=std, verbose=verbose) for _ in range(n)]
+
+        self.env = gym.make('CartPole-v0')
 
     def reset(self):
         for agent in self.agents:
             agent.reset()
+
+    def select(self):
+        p = np.array([agent.reward for agent in self.agents])
+        p /= p.sum()
+
+        agents = np.random.choice(self.agents, size=2*self.n//3, replace=False, p=p)
+
+        p = np.array([agent.reward for agent in agents])
+        p /= p.sum()
+
+        n = self.n - 2*self.n//3
+
+        self.agents = [agent for agent in agents] + \
+                      [agent.offspring(self.std) for agent in np.random.choice(agents, n, p=p)]
+
+    def simulation_step(self):
+
+        for agent in self.agents:
+
+            observation = self.env.reset()
+
+            for t in range(100):
+                observation, reward, done, info = self.env.step(agent.action(observation))
+
+                agent.add_reward(reward)
+
+                if done:
+                    break
+
+        self.generation += 1
+
+        return [agent.reward for agent in self.agents]
+
+    def simulation(self, n):
+
+        for i in range(n):
+            self.reset()
+            self.simulation_step()
+            self.select()
