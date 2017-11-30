@@ -61,6 +61,11 @@ class Agent:
         return agent
 
     def action(self, observation):
+        """
+        The agent's "brain" is consists of a two-layer neural network, which is fed the environment's observation.
+        :param observation: the environment's observation output.
+        :return: the action that has the highest score.
+        """
 
         result = np.dot(self.weights1, observation)
         self.print(result)
@@ -88,7 +93,7 @@ class Agent:
 
 class Generation:
 
-    def __init__(self, n=10, std=.1, verbose=False):
+    def __init__(self, n=10, std=.1, env=None, verbose=False):
 
         self.generation = 0
         self.std = std
@@ -96,7 +101,10 @@ class Generation:
         self.n = n
         self.agents = [Agent(std=std, verbose=verbose) for _ in range(n)]
 
-        self.env = gym.make('CartPole-v0')
+        if env is None:
+            self.env = gym.make('CartPole-v0')
+        else:
+            self.env = env
 
     def reset(self):
         for agent in self.agents:
