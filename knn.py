@@ -1,11 +1,15 @@
 import numpy as np
+import pandas as pd
+
+from sklearn.neighbors import KDTree
 
 
 class State:
-    def __init__(self, observation, action):
+    def __init__(self, observation, previous=None):
         self.observation = observation
-        self.action = action
         self.reward = 0
+
+        self.previous = previous
 
     def still_alive(self):
         self.reward += 1
@@ -13,37 +17,55 @@ class State:
 
 class States:
     def __init__(self):
+
         self.elements = []
+        self.X = pd.DataFrame(columns=['a', 'b', 'c', 'd'])
 
-    def add_state(self, observation, action):
-        self.elements += [State(observation, action)]
+        self.tree = None
 
-    def concat(self, states, inplace=False):
+    def compute_tree(self):
+        self.tree = KDTree(self.X)
 
-        elements = self.elements + states.elements
+    def add_state(self, observation):
+        self.elements += [State(observation)]
+        self.X.loc[len(self.X)] = observation
+
+    def concat(self, other, inplace=False):
+
+        elements = self.elements + other.elements
+        X = pd.concat([self.X, other.X], ignore_index=True)
 
         if not inplace:
             result = States()
             result.elements = elements
+            result.X = X
+            result.compute_tree()
             return result
-
-        self.elements = elements
+        else:
+            self.elements = elements
+            self.X = X
+            self.compute_tree()
 
     def still_alive(self):
         for element in self.elements:
             element.still_alive()
 
     def lookup(self, observation, k):
-        a = np.array([state for state in self.elements if state.action == 0])
-        b = np.array([state for state in self.elements if state.action == 1])
+        k = min(k, len(self.elements))
 
-        distance_a = np.array([((state.observation - observation)**2).sum() for state in a])
-        distance_b = np.array([((state.observation - observation)**2).sum() for state in b])
+        if not self.tree:
+            distance = np.array([((state.observation - observation)**2).sum() for state in self.elements])
+            indices = np.flip(np.argsort(distance), 0)[:k]
+            return distance[indices], [self.elements[index] for index in indices]
+        else:
+            distance, indices = self.tree.query([observation], k)
+            # print(indices)
+            return distance, [self.elements[index[0]] for index in indices]
 
-        indices_a = np.flip(np.argsort(distance_a), 0)[:k]
-        indices_b = np.flip(np.argsort(distance_b), 0)[:k]
 
-        return a[indices_a], b[indices_b]
+class Path:
+    def __init__(self):
+        self.states = None
 
 
 class Agent:
@@ -52,36 +74,50 @@ class Agent:
         self.verbose = verbose
         self.reward = 0
 
-        self.staging = States()
-        self.neighborhood = States()
+        self.staging = [States(), States()]
+        self.neighborhood = [States(), States()]
 
         self.k = k
 
     def action(self, observation):
 
-        staging = self.staging.lookup(observation, self.k)
-        neighborhood = self.neighborhood.lookup(observation, self.k)
+        rewards = []
+        distances = []
 
-        rewards = np.array([
-            np.array([state.reward for state in staging[0]] + [state.reward for state in neighborhood[0]] + [1]).mean(),
-            np.array([state.reward for state in staging[1]] + [state.reward for state in neighborhood[1]] + [1]).mean()
-        ])
+        for a in [0, 1]:
 
-        if rewards.min() == rewards.max():
-            action = np.random.choice([0, 1])
-        else:
-            action = np.argmax(rewards)
+            distance, states = self.neighborhood[a].lookup(observation, k=self.k)
 
-        self.staging.add_state(observation, action)
+            if len(distance) == 0:
+                rewards.append(1)
+                distances.append(1)
 
-        return action
+            else:
+                distance = 1 / distance
+                reward = (np.array([state.reward for state in states]) * distance).sum() / distance.sum()
+
+                rewards.append(reward)
+                distances.append(distance.mean())
+
+        rewards = np.array(rewards)
+        distances = np.array(distances)
+
+        p = (rewards * distances) / ((rewards * distances).sum())
+
+        a = np.random.choice([0, 1], p=p)
+
+        self.staging[a].add_state(observation)
+
+        return a
 
     def add_reward(self, reward):
         self.reward += reward
         if reward == 1:
-            self.staging.still_alive()
+            for a in [0, 1]:
+                self.staging[a].still_alive()
 
     def reset(self):
         self.reward = 0
-        self.neighborhood.concat(self.staging, inplace=True)
-        self.staging = States()
+        for a in [0, 1]:
+            self.neighborhood[a].concat(self.staging[a], inplace=True)
+        self.staging = [States(), States()]
